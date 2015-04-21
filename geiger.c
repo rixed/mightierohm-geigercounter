@@ -96,8 +96,8 @@
 
 // Function prototypes
 void uart_putchar(char c);      // send a character to the serial port
-void uart_putstring(char *buffer);    // send a null-terminated string in SRAM to the serial port
-void uart_putstring_P(char *buffer);  // send a null-terminated string in PROGMEM to the serial port
+void uart_putstring(char const *buffer);    // send a null-terminated string in SRAM to the serial port
+void uart_putstring_P(char const *buffer);  // send a null-terminated string in PROGMEM to the serial port
 
 void checkevent(void);  // flash LED and beep the piezo
 void sendreport(void);  // log data over the serial port
@@ -116,8 +116,6 @@ volatile uint8_t eventflag; // flag for ISR to tell main loop if a GM event has 
 volatile uint8_t tick;    // flag that tells main() when 1 second has passed
 
 char serbuf[SER_BUFF_LEN];  // serial buffer
-uint8_t mode;       // logging mode, 0 = slow, 1 = fast, 2 = inst
-
 
 // Interrupt service routines
 
@@ -181,7 +179,7 @@ void uart_putchar(char c)
 }
 
 // Send a string in SRAM to the UART
-void uart_putstring(char *buffer)
+void uart_putstring(char const *buffer)
 {
   // start sending characters over the serial port until we reach the end of the string
   while (*buffer != '\0') { // are we at the end of the string yet?
@@ -191,7 +189,7 @@ void uart_putstring(char *buffer)
 }
 
 // Send a string in PROGMEM to the UART
-void uart_putstring_P(char *buffer)
+void uart_putstring_P(char const *buffer)
 {
   // start sending characters over the serial port until we reach the end of the string
   while (pgm_read_byte(buffer) != '\0') // are we done yet?
@@ -223,20 +221,26 @@ void checkevent(void)
 // log data over the serial port
 void sendreport(void)
 {
+  static enum mode_t {
+    MODE_SLOW = 0,
+    MODE_FAST = 1,
+    MODE_INST = 2,
+  } mode;
+
   uint32_t cpm; // This is the CPM value we will report
   if(tick) {  // 1 second has passed, time to report data via UART
     tick = 0; // reset flag for the next interval
 
     if (overflow) {
       cpm = cps*60UL;
-      mode = 2;
+      mode = MODE_INST;
       overflow = 0;
     }
     else if (fastcpm > THRESHOLD) { // if cpm is too high, use the short term average instead
-      mode = 1;
+      mode = MODE_FAST;
       cpm = fastcpm;  // report cpm based on last 5 samples
     } else {
-      mode = 0;
+      mode = MODE_SLOW;
       cpm = slowcpm;  // report cpm based on last 60 samples
     }
 
@@ -267,12 +271,16 @@ void sendreport(void)
     uart_putstring(serbuf);
 
     // Tell us what averaging method is being used
-    if (mode == 2) {
-      uart_putstring_P(PSTR(",I"));
-    } else if (mode == 1) {
-      uart_putstring_P(PSTR(",F"));
-    } else {
-      uart_putstring_P(PSTR(",S"));
+    switch (mode) {
+      case MODE_INST:
+        uart_putstring_P(PSTR(",I"));
+        break;
+      case MODE_FAST:
+        uart_putstring_P(PSTR(",F"));
+        break;
+      case MODE_SLOW:
+        uart_putstring_P(PSTR(",S"));
+        break;
     }
 
     // We're done reporting data, output a newline.
