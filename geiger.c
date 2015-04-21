@@ -179,18 +179,8 @@ static void uart_putuint(uint32_t x)
   }
 }
 
-// Send a string in SRAM to the UART
-void uart_putstring(char const *buffer)
-{
-  // start sending characters over the serial port until we reach the end of the string
-  while (*buffer != '\0') { // are we at the end of the string yet?
-    uart_putchar(*buffer);  // send the contents
-    buffer++;       // advance to next char in buffer
-  }
-}
-
 // Send a string in PROGMEM to the UART
-void uart_putstring_P(char const *buffer)
+static void uart_putstring_P(char const *buffer)
 {
   // start sending characters over the serial port until we reach the end of the string
   while (pgm_read_byte(buffer) != '\0') // are we done yet?
@@ -198,7 +188,7 @@ void uart_putstring_P(char const *buffer)
 }
 
 // flash LED and beep the piezo
-void checkevent(void)
+static void checkevent(void)
 {
   if (eventflag) {    // a GM event has occurred, do something about it!
     eventflag = 0;    // reset flag as soon as possible, in case another ISR is called while we're busy
@@ -220,7 +210,7 @@ void checkevent(void)
   }
 }
 // log data over the serial port
-void sendreport(void)
+static void sendreport(void)
 {
   static enum mode_t {
     MODE_SLOW = 0,
