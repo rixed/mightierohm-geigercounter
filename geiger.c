@@ -87,6 +87,7 @@
 #include <avr/sleep.h>    // sleep mode utilities
 #include <util/delay.h>   // some convenient delay functions
 #include "miscmacs.h"
+#include "event.h"
 
 // Defines
 #define THRESHOLD   1000  // CPM threshold for fast avg mode
@@ -119,16 +120,16 @@ ISR(INT0_vect)
   eventflag = 1;  // tell main program loop that a GM pulse has occurred
 }
 
-/*  Timer1 compare interrupt
- *  This interrupt is called every time TCNT1 reaches OCR1A and is reset back to 0 (CTC mode).
- *  Timer1 is setup so this happens once a second.
- */
-ISR(TIMER1_COMPA_vect)
+// Run this every seconds
+static void periodic_event(struct event *e)
 {
+  // Reschedule
+  event_register(e, US_TO_TIMER1_TICKS(1000000ULL));
+
   uint8_t i;  // index for fast mode
   tick = 1; // update flag
 
-  //PORTB ^= _BV(PB4);  // toggle the LED (for debugging purposes)
+  PORTB ^= _BV(PB4);  // toggle the LED (for debugging purposes)
   cps = count;
   slowcpm -= buffer[idx];   // subtract oldest sample in sample buffer
 
@@ -201,6 +202,7 @@ static void checkevent(void)
     OCR0A = 160;  // 160 = toggle OCR0A every 160ms, period = 320us, freq= 3.125kHz
 
     // 10ms delay gives a nice short flash and 'click' on the piezo
+    // FIXME: do not delay here!
     _delay_ms(10);
 
     PORTB &= ~(_BV(PB4)); // turn off the LED
@@ -290,14 +292,11 @@ int main(void)
 
   // Set up AVR IO ports
   DDRB = _BV(PB4) | _BV(PB2);  // set pins connected to LED and piezo as outputs
-  DDRD = _BV(PD6);  // configure PULSE output
-  PORTD |= _BV(PD3);  // enable internal pull up resistor on pin connected to button
 
   // Set up external interrupts
   // INT0 is triggered by a GM impulse
-  // INT1 is triggered by pushing the button
-  MCUCR |= _BV(ISC01) | _BV(ISC11); // Config interrupts on falling edge of INT0 and INT1
-  GIMSK |= _BV(INT0) | _BV(INT1);   // Enable external interrupts on pins INT0 and INT1
+  MCUCR |= _BV(ISC01); // Config interrupts on falling edge of INT0
+  GIMSK |= _BV(INT0);  // Enable external interrupts on pin INT0
 
   // Configure the Timers
   // Set up Timer0 for tone generation
@@ -305,12 +304,10 @@ int main(void)
   TCCR0A = (0<<COM0A1) | (1<<COM0A0) | (0<<WGM02) |  (1<<WGM01) | (0<<WGM00);
   TCCR0B = 0; // stop Timer0 (no sound)
 
-  // Set up Timer1 for 1 second interrupts
-  TCCR1B = _BV(WGM12) | _BV(CS12);  // CTC mode, prescaler = 256 (32us ticks)
-  OCR1A = 31250;  // 32us * 31250 = 1 sec
-  TIMSK = _BV(OCIE1A);  // Timer1 overflow interrupt enable
-
-  sei();  // Enable interrupts
+  event_init();
+  struct event e;
+  event_ctor(&e, periodic_event);
+  periodic_event(&e);
 
   while(1) {  // loop forever
 
