@@ -103,7 +103,6 @@ void checkevent(void);  // flash LED and beep the piezo
 void sendreport(void);  // log data over the serial port
 
 // Global variables
-volatile uint8_t nobeep;    // flag used to mute beeper
 volatile uint16_t count;    // number of GM events that has occurred
 volatile uint16_t slowcpm;    // GM counts per minute in slow mode
 volatile uint16_t fastcpm;    // GM counts per minute in fast mode
@@ -130,20 +129,6 @@ ISR(INT0_vect)
     count++; // increase event counter
 
   eventflag = 1;  // tell main program loop that a GM pulse has occurred
-}
-
-//  Pin change interrupt for pin INT1 (pushbutton)
-//  If the user pushes the button, this interrupt is executed.
-//  We need to be careful about switch bounce, which will make the interrupt
-//  execute multiple times if we're not careful.
-ISR(INT1_vect)
-{
-  _delay_ms(25);          // slow down interrupt calls (crude debounce)
-
-  if ((PIND & _BV(PD3)) == 0)   // is button still pressed?
-    nobeep ^= 1;        // toggle mute mode
-
-  EIFR |= _BV(INTF1);       // clear interrupt flag to avoid executing ISR again due to switch bounce
 }
 
 /*  Timer1 compare interrupt
@@ -221,11 +206,10 @@ void checkevent(void)
 
     PORTB |= _BV(PB4);  // turn on the LED
 
-    if(!nobeep) {   // check if we're in mute mode
-      TCCR0A |= _BV(COM0A0);  // enable OCR0A output on pin PB2
-      TCCR0B |= _BV(CS01);  // set prescaler to clk/8 (1Mhz) or 1us/count
-      OCR0A = 160;  // 160 = toggle OCR0A every 160ms, period = 320us, freq= 3.125kHz
-    }
+    // Beep!
+    TCCR0A |= _BV(COM0A0);  // enable OCR0A output on pin PB2
+    TCCR0B |= _BV(CS01);  // set prescaler to clk/8 (1Mhz) or 1us/count
+    OCR0A = 160;  // 160 = toggle OCR0A every 160ms, period = 320us, freq= 3.125kHz
 
     // 10ms delay gives a nice short flash and 'click' on the piezo
     _delay_ms(10);
