@@ -80,27 +80,19 @@
 #define F_CPU    8000000
 
 // Includes
+#include <stdlib.h>
 #include <avr/io.h>     // this contains the AVR IO port definitions
 #include <avr/interrupt.h>  // interrupt service routines
 #include <avr/pgmspace.h> // tools used to store variables in program memory
 #include <avr/sleep.h>    // sleep mode utilities
 #include <util/delay.h>   // some convenient delay functions
-#include <stdlib.h>     // some handy functions like utoa()
+#include "miscmacs.h"
 
 // Defines
-#define SER_BUFF_LEN  11    // Serial buffer length
 #define THRESHOLD   1000  // CPM threshold for fast avg mode
 #define LONG_PERIOD   60    // # of samples to keep in memory in slow avg mode
 #define SHORT_PERIOD  5   // # or samples for fast avg mode
 #define SCALE_FACTOR  57    //  CPM to uSv/hr conversion factor (x10,000 to avoid float)
-
-// Function prototypes
-void uart_putchar(char c);      // send a character to the serial port
-void uart_putstring(char const *buffer);    // send a null-terminated string in SRAM to the serial port
-void uart_putstring_P(char const *buffer);  // send a null-terminated string in PROGMEM to the serial port
-
-void checkevent(void);  // flash LED and beep the piezo
-void sendreport(void);  // log data over the serial port
 
 // Global variables
 volatile uint16_t count;    // number of GM events that has occurred
@@ -114,8 +106,6 @@ volatile uint8_t idx;         // sample buffer index
 
 volatile uint8_t eventflag; // flag for ISR to tell main loop if a GM event has occurred
 volatile uint8_t tick;    // flag that tells main() when 1 second has passed
-
-char serbuf[SER_BUFF_LEN];  // serial buffer
 
 // Interrupt service routines
 
@@ -170,12 +160,23 @@ ISR(TIMER1_COMPA_vect)
 // Functions
 
 // Send a character to the UART
-void uart_putchar(char c)
+static void uart_putchar(char c)
 {
   if (c == '\n') uart_putchar('\r');  // Windows-style CRLF
 
   loop_until_bit_is_set(UCSRA, UDRE); // wait until UART is ready to accept a new character
   UDR = c;              // send 1 character
+}
+
+static void uart_putuint(uint32_t x)
+{
+  if (x < 10) {
+    uart_putchar(x + '0');
+  } else {
+    ldiv_t const r = uldiv(x, 10U);
+    uart_putuint(r.quot);
+    uart_putuint(r.rem);
+  }
 }
 
 // Send a string in SRAM to the UART
@@ -245,12 +246,10 @@ void sendreport(void)
     }
 
     // Send CPM value to the serial port
-    utoa(cps, serbuf, 10);    // radix 10
-    uart_putstring(serbuf);
+    uart_putuint(cps);
     uart_putstring_P(PSTR(","));
 
-    ultoa(cpm, serbuf, 10);   // radix 10
-    uart_putstring(serbuf);
+    uart_putuint(cpm);
     uart_putstring_P(PSTR(","));
 
     // calculate uSv/hr based on scaling factor, and multiply result by 100
@@ -258,8 +257,7 @@ void sendreport(void)
     uint32_t usv_scaled = (uint32_t)(cpm*SCALE_FACTOR); // scale and truncate the integer part
 
     // this reports the integer part
-    utoa((uint16_t)(usv_scaled/10000), serbuf, 10);
-    uart_putstring(serbuf);
+    uart_putuint((uint16_t)(usv_scaled/10000));
 
     uart_putchar('.');
 
@@ -267,8 +265,7 @@ void sendreport(void)
     uint8_t fraction = (usv_scaled/100)%100;
     if (fraction < 10)
       uart_putchar('0');  // zero padding for <0.10
-    utoa(fraction, serbuf, 10);
-    uart_putstring(serbuf);
+    uart_putuint(fraction);
 
     // Tell us what averaging method is being used
     switch (mode) {

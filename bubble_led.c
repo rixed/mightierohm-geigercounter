@@ -46,9 +46,6 @@ static uint8_t segments_of_value(uint8_t value)
 #define X_DDR_OF(X) DDR ## X
 #define DDR_OF(X) X_DDR_OF(X)
 
-// Save us from linking in __divmodhi4 (assume __udivmodhi4 is already there)
-div_t udiv(unsigned __num, unsigned __denom) __asm__("__udivmodhi4");
-
 void bubble_set_float(struct bubble *b, uint16_t value, uint8_t dec_bits)
 {
   (void)dec_bits;

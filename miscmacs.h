@@ -40,4 +40,8 @@
 #define forever for (;;)
 #define DIV_ROUND(a, b) (((a)+(a>>1))/b)
 
+// Save us from linking in __divmodhi4 (assume __udivmodhi4 is already there)
+div_t udiv(unsigned __num, unsigned __denom) __asm__("__udivmodhi4") __ATTR_CONST__;
+ldiv_t uldiv(unsigned long __num, unsigned long __denom) __asm__("__udivmodsi4") __ATTR_CONST__;
+
 #endif
