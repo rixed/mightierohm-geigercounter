@@ -9,7 +9,7 @@ OBJCOPY = avr-objcopy
 CFLAGS += \
 	-std=gnu99 -Wl,--gc-sections -mmcu=${MCU} -fshort-enums -W -Wall -Os
 CPPFLAGS += \
-	-DF_CPU=${F_CPU} -DUSB_VID=null -DUSB_PID=null \
+	-DF_CPU=$(F_CPU) -DBAUD=$(BAUD) \
 	-I$(top_srcdir)
 LDFLAGS += \
 	-L$(top_srcdir)

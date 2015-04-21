@@ -1,2 +1,9 @@
 cscope.out
 schematics
+.depend
+*.o
+*.hex
+*.elf
+*.map
+*.a
+*.swp
