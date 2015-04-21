@@ -85,7 +85,6 @@
 #include <avr/interrupt.h>  // interrupt service routines
 #include <avr/pgmspace.h> // tools used to store variables in program memory
 #include <avr/sleep.h>    // sleep mode utilities
-#include <util/delay.h>   // some convenient delay functions
 #include "miscmacs.h"
 #include "event.h"
 
@@ -120,8 +119,12 @@ ISR(INT0_vect)
   eventflag = 1;  // tell main program loop that a GM pulse has occurred
 }
 
+/* Events */
+
+static struct event every_second_e, bip_stop_e;
+
 // Run this every seconds
-static void periodic_event(struct event *e)
+static void every_second(struct event *e)
 {
   // Reschedule
   event_register(e, US_TO_TIMER1_TICKS(1000000ULL));
@@ -129,7 +132,7 @@ static void periodic_event(struct event *e)
   uint8_t i;  // index for fast mode
   tick = 1; // update flag
 
-  PORTB ^= _BV(PB4);  // toggle the LED (for debugging purposes)
+  //PORTB ^= _BV(PB4);  // toggle the LED (for debugging purposes)
   cps = count;
   slowcpm -= buffer[idx];   // subtract oldest sample in sample buffer
 
@@ -158,7 +161,28 @@ static void periodic_event(struct event *e)
   count = 0;  // reset counter
 }
 
-// Functions
+// Bip start/stop events
+static void bip_start(void)
+{
+  PORTB |= _BV(PB4);  // turn on the LED
+
+  TCCR0A |= _BV(COM0A0);  // enable OCR0A output on pin PB2
+  TCCR0B |= _BV(CS01);  // set prescaler to clk/8 (1Mhz) or 1us/count
+  OCR0A = 160;  // 160 = toggle OCR0A every 160ms, period = 320us, freq= 3.125kHz
+
+  // 10ms delay gives a nice short flash and 'click' on the piezo
+  event_register(&bip_stop_e, US_TO_TIMER1_TICKS(10000ULL));  // 10ms
+}
+
+static void bip_stop(struct event *e)
+{
+  (void)e;
+  PORTB &= ~(_BV(PB4)); // turn off the LED
+  TCCR0B = 0;       // disable Timer0 since we're no longer using it
+  TCCR0A &= ~(_BV(COM0A0)); // disconnect OCR0A from Timer0, this avoids occasional HVPS whine after beep
+}
+
+/* Utility functions */
 
 // Send a character to the UART
 static void uart_putchar(char c)
@@ -191,25 +215,10 @@ static void uart_putstring_P(char const *buffer)
 // flash LED and beep the piezo
 static void checkevent(void)
 {
-  if (eventflag) {    // a GM event has occurred, do something about it!
-    eventflag = 0;    // reset flag as soon as possible, in case another ISR is called while we're busy
+  if (! eventflag) return;
+  eventflag = 0;    // reset flag as soon as possible, in case another ISR is called while we're busy
 
-    PORTB |= _BV(PB4);  // turn on the LED
-
-    // Beep!
-    TCCR0A |= _BV(COM0A0);  // enable OCR0A output on pin PB2
-    TCCR0B |= _BV(CS01);  // set prescaler to clk/8 (1Mhz) or 1us/count
-    OCR0A = 160;  // 160 = toggle OCR0A every 160ms, period = 320us, freq= 3.125kHz
-
-    // 10ms delay gives a nice short flash and 'click' on the piezo
-    // FIXME: do not delay here!
-    _delay_ms(10);
-
-    PORTB &= ~(_BV(PB4)); // turn off the LED
-
-    TCCR0B = 0;       // disable Timer0 since we're no longer using it
-    TCCR0A &= ~(_BV(COM0A0)); // disconnect OCR0A from Timer0, this avoids occasional HVPS whine after beep
-  }
+  bip_start();
 }
 // log data over the serial port
 static void sendreport(void)
@@ -298,16 +307,14 @@ int main(void)
   MCUCR |= _BV(ISC01); // Config interrupts on falling edge of INT0
   GIMSK |= _BV(INT0);  // Enable external interrupts on pin INT0
 
-  // Configure the Timers
   // Set up Timer0 for tone generation
-  // Toggle OC0A (pin PB2) on compare match and set timer to CTC mode
   TCCR0A = (0<<COM0A1) | (1<<COM0A0) | (0<<WGM02) |  (1<<WGM01) | (0<<WGM00);
   TCCR0B = 0; // stop Timer0 (no sound)
 
   event_init();
-  struct event e;
-  event_ctor(&e, periodic_event);
-  periodic_event(&e);
+  event_ctor(&every_second_e, every_second);
+  every_second(&every_second_e);
+  event_ctor(&bip_stop_e, bip_stop);
 
   while(1) {  // loop forever
 
@@ -321,6 +328,7 @@ int main(void)
 
     sleep_disable();  // disable sleep so we don't accidentally go to sleep
 
+    // FIXME: run this from INT0 directly
     checkevent(); // check if we should signal an event (led + beep)
 
     sendreport(); // send a log report over serial
