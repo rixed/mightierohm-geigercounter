@@ -1,3 +1,21 @@
+/* This is a total conversion of the Geiger Counter from mightyohm.com.
+ * Modifications:
+ * - Addition of a 4 digits led display to display current radiation level;
+ * - Addition of a SIPO shift register to help driving the display;
+ * - Removal of the LED to save one pin;
+ * - Removal of the pulse feature to save one pin;
+ * - Consider replacement of the mute button by a switch to save one pin of
+ *   the uC;
+ * - Major rewrite of the firmware (this file);
+ * - Making all code fit within 2Kb requires trimming down texts.
+ *
+ * We had 5 free pins in the original design, we now have 8, which is enough
+ * for driving the display with the help of a SIPO shift register.
+ * We actually need:
+ * - 4 pins to select what digit to lit;
+ * - 3 pins to talk to the SIPO.
+ *
+ * What follows is the original description: */
 /*
 	Title: Geiger Counter with Serial Data Reporting
 	Description: This is the firmware for the mightyohm.com Geiger Counter.
@@ -22,7 +40,7 @@
 	The serial port is configured for BAUD baud, 8-N-1 (default 9600).
 	
 	The data is reported in comma separated value (CSV) format:
-	CPS, #####, CPM, #####, uSv/hr, ###.##, SLOW|FAST|INST
+	CPS, CPM, uSv/hr, S(low)|F(ast)|I(nst)
 	
 	There are three modes.  Normally, the sample period is LONG_PERIOD (default 60 seconds). This is SLOW averaging mode.
 	If the last five measured counts exceed a preset threshold, the sample period switches to SHORT_PERIOD seconds (default 5 seconds).
@@ -67,17 +85,11 @@
 #include <stdlib.h>			// some handy functions like utoa()
 
 // Defines
-#define VERSION			"1.00"
-#define URL				"http://mightyohm.com/geiger"
-
-#define	F_CPU			8000000	// AVR clock speed in Hz
-#define	BAUD			9600	// Serial BAUD rate
 #define SER_BUFF_LEN	11		// Serial buffer length
 #define THRESHOLD		1000	// CPM threshold for fast avg mode
 #define LONG_PERIOD		60		// # of samples to keep in memory in slow avg mode
 #define SHORT_PERIOD	5		// # or samples for fast avg mode
 #define SCALE_FACTOR	57		//	CPM to uSv/hr conversion factor (x10,000 to avoid float)
-#define PULSEWIDTH		100		// width of the PULSE output (in microseconds)
 
 // Function prototypes
 void uart_putchar(char c);			// send a character to the serial port
@@ -114,13 +126,6 @@ ISR(INT0_vect)
 	if (count < UINT16_MAX)	// check for overflow, if we do overflow just cap the counts at max possible
 		count++; // increase event counter
 
-	// send a pulse to the PULSE connector
-	// a delay of 100us limits the max CPS to about 8000
-	// you can comment out this code and increase the max CPS possible (up to 65535!)
-	PORTD |= _BV(PD6);	// set PULSE output high
-	_delay_us(PULSEWIDTH);
-	PORTD &= ~(_BV(PD6));	// set pulse output low
-		
 	eventflag = 1;	// tell main program loop that a GM pulse has occurred
 }
 
@@ -249,16 +254,12 @@ void sendreport(void)
 		}
 		
 		// Send CPM value to the serial port
-		uart_putstring_P(PSTR("CPS, "));
 		utoa(cps, serbuf, 10);		// radix 10
 		uart_putstring(serbuf);
 			
-		uart_putstring_P(PSTR(", CPM, "));
 		ultoa(cpm, serbuf, 10);		// radix 10
 		uart_putstring(serbuf);
 			
-		uart_putstring_P(PSTR(", uSv/hr, "));
-	
 		// calculate uSv/hr based on scaling factor, and multiply result by 100
 		// so we can easily separate the integer and fractional components (2 decimal places)
 		uint32_t usv_scaled = (uint32_t)(cpm*SCALE_FACTOR);	// scale and truncate the integer part
@@ -278,11 +279,11 @@ void sendreport(void)
 			
 		// Tell us what averaging method is being used
 		if (mode == 2) {
-			uart_putstring_P(PSTR(", INST"));
+			uart_putstring_P(PSTR(",I"));
 		} else if (mode == 1) {
-			uart_putstring_P(PSTR(", FAST"));
+			uart_putstring_P(PSTR(",F"));
 		} else {
-			uart_putstring_P(PSTR(", SLOW"));
+			uart_putstring_P(PSTR(",S"));
 		}			
 			
 		// We're done reporting data, output a newline.
@@ -301,8 +302,7 @@ int main(void)
 	// Enable USART transmitter and receiver
 	UCSRB = (1<<RXEN) | (1<<TXEN);
 
-	uart_putstring_P(PSTR("mightyohm.com Geiger Counter " VERSION "\n"));
-	uart_putstring_P(PSTR(URL "\n"));
+	uart_putstring_P(PSTR("mightyohm.com Geiger Counter\n"));
 
 	// Set up AVR IO ports
 	DDRB = _BV(PB4) | _BV(PB2);  // set pins connected to LED and piezo as outputs
