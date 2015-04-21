@@ -1,0 +1,45 @@
+# vim: filetype=make
+include mcu.conf
+CC = avr-gcc
+AS = avr-as
+AR = avr-ar
+LD = avr-ld
+OBJCOPY = avr-objcopy
+
+CFLAGS += \
+	-std=gnu99 -Wl,--gc-sections -mmcu=${MCU} -fshort-enums -W -Wall -Os
+CPPFLAGS += \
+	-DF_CPU=${F_CPU} -DUSB_VID=null -DUSB_PID=null \
+	-I$(top_srcdir)
+LDFLAGS += \
+	-L$(top_srcdir)
+
+.SUFFIXES: .elf .eep .hex .up
+
+LIBCOMMON_SOURCES = event.c event.h bubble_led.c bubble_led.h miscmacs.h shift_register.h
+
+libcommon.a: $(patsubst %.c, %.o, $(filter %.c, $(LIBCOMMON_SOURCES)))
+	$(AR) rsc $@ $^
+
+# As all .elf depends on libarduino.a we can't use the short suffix format ".o.elf" for some reason.
+%.elf: %.o libcommon.a
+	$(CC) $(CFLAGS) $(LDFLAGS) $< -lcommon -Wl,-Map,$@.map -o $@
+	avr-size --mcu=${MCU} -C $@
+
+.elf.eep:
+	$(OBJCOPY) -O ihex -j .eeprom --set-section-flags=.eeprom=alloc,load --no-change-warnings --change-section-lma .eeprom=0 $< $@
+
+.elf.hex:
+	$(OBJCOPY) -O ihex -R .eeprom $< $@
+
+.hex.up:
+	sudo avrdude -p ${MCU_dude} -c ${PROGRAMMER} -U flash:w:$<:i
+
+.PHONY: clean clean-spec
+
+clean: clean-spec
+	rm -f *.hex *.eep *.elf *.o *.a .depend *.map
+
+.depend: $(LIBCOMMON_SOURCES) $(SOURCES)
+	$(CC) -M $(CFLAGS) $(CPPFLAGS) $^ >> $@
+
