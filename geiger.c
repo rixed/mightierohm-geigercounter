@@ -104,20 +104,7 @@ volatile uint8_t overflow;    // overflow flag
 volatile uint8_t buffer[LONG_PERIOD]; // the sample buffer
 volatile uint8_t idx;         // sample buffer index
 
-volatile uint8_t eventflag; // flag for ISR to tell main loop if a GM event has occurred
 volatile uint8_t tick;    // flag that tells main() when 1 second has passed
-
-// Interrupt service routines
-
-//  Pin change interrupt for pin INT0
-//  This interrupt is called on the falling edge of a GM pulse.
-ISR(INT0_vect)
-{
-  if (count < UINT16_MAX) // check for overflow, if we do overflow just cap the counts at max possible
-    count++; // increase event counter
-
-  eventflag = 1;  // tell main program loop that a GM pulse has occurred
-}
 
 /* Events */
 
@@ -182,6 +169,18 @@ static void bip_stop(struct event *e)
   TCCR0A &= ~(_BV(COM0A0)); // disconnect OCR0A from Timer0, this avoids occasional HVPS whine after beep
 }
 
+/* Interrupt */
+
+//  Pin change interrupt for pin INT0
+//  This interrupt is called on the falling edge of a GM pulse.
+ISR(INT0_vect)
+{
+  if (count < UINT16_MAX) // check for overflow, if we do overflow just cap the counts at max possible
+    count++; // increase event counter
+
+  bip_start();
+}
+
 /* Utility functions */
 
 // Send a character to the UART
@@ -212,14 +211,6 @@ static void uart_putstring_P(char const *buffer)
     uart_putchar(pgm_read_byte(buffer++));  // read byte from PROGMEM and send it
 }
 
-// flash LED and beep the piezo
-static void checkevent(void)
-{
-  if (! eventflag) return;
-  eventflag = 0;    // reset flag as soon as possible, in case another ISR is called while we're busy
-
-  bip_start();
-}
 // log data over the serial port
 static void sendreport(void)
 {
@@ -329,12 +320,7 @@ int main(void)
     sleep_disable();  // disable sleep so we don't accidentally go to sleep
 
     // FIXME: run this from INT0 directly
-    checkevent(); // check if we should signal an event (led + beep)
-
     sendreport(); // send a log report over serial
-
-    checkevent(); // check again before going to sleep
-
   }
   return 0; // never reached
 }
