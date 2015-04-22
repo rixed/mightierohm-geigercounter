@@ -1,5 +1,5 @@
 top_srcdir = .
-all: geiger.hex event_test.hex led_test.hex bubble_test.hex bubble_serial_test.hex
+all: geiger.hex
 
 CPPFLAGS = -DBUBBLE_LED_VIA_SHIFT_REGISTER=1 -DBB_PORT_SHIFT_REG=B
 
