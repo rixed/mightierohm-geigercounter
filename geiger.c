@@ -76,10 +76,6 @@
   You should have received a copy of the GNU General Public License
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
-// overwrite parameter from CLI because on the board we are using this freq.
-#undef  F_CPU
-#define F_CPU    8000000
-
 // Includes
 #include <stdlib.h>
 #include <avr/io.h>     // this contains the AVR IO port definitions
@@ -88,16 +84,19 @@
 #include <avr/sleep.h>    // sleep mode utilities
 #include "miscmacs.h"
 #include "event.h"
+#include "shift_register.h"
+#include "bubble_led.h"
 
 // Defines
 #define THRESHOLD   1000  // CPM threshold for fast avg mode
-#define LONG_PERIOD   60    // # of samples to keep in memory in slow avg mode
 #define SCALE_FACTOR  57    //  CPM to uSv/hr conversion factor (x10,000 to avoid float)
 
 // Global variables
-volatile uint8_t cps;     // number of GM events that has occurred this second
-volatile uint8_t buffer[LONG_PERIOD]; // the sample buffer. Any 255 means onverflow.
-volatile uint8_t idx;         // sample buffer index
+static uint8_t cps;     // number of GM events that has occurred this second
+static uint8_t buffer[30]; // the sample buffer. Any 255 means overflow.
+static uint8_t idx;         // sample buffer index
+
+static struct bubble bubble;
 
 /* Utility functions */
 
@@ -123,7 +122,8 @@ static void uart_putuint(uint32_t x)
 
 /* Events */
 
-static struct event every_second_e, bip_stop_e;
+static struct event every_second_e;
+static struct event bip_stop_e;
 
 // Run this every seconds
 static void every_second(struct event *e)
@@ -131,7 +131,7 @@ static void every_second(struct event *e)
   // Reschedule
   event_register(e, US_TO_TIMER1_TICKS(1000000ULL));
 
-  //PORTB ^= _BV(PB4);  // toggle the LED (for debugging purposes)
+  //BIT_FLIP(PORTB, PB4);  // toggle the LED (for debugging purposes)
 
   buffer[idx] = cps;   // save current sample to buffer (replacing old value)
   if (++idx >= SIZEOF_ARRAY(buffer)) idx = 0;
@@ -143,13 +143,24 @@ static void every_second(struct event *e)
 
   uint8_t overflow = 0;
   uint16_t cpm = 0;
-  for (uint8_t idx = 0; idx < SIZEOF_ARRAY(buffer); idx++) {
-    if (buffer[idx] == UINT8_MAX) overflow = 1;
-    cpm += buffer[idx];
+  for (uint8_t i = 0; i < SIZEOF_ARRAY(buffer); i++) {
+    if (buffer[i] == UINT8_MAX) overflow = 1;
+    cpm += buffer[i];
   }
+  cpm <<= 1;  // since we have only 30secs
   if (overflow) uart_putchar('>');
   uart_putuint(cpm);
+  uart_putchar(',');
+
+  // Display CPM * 0.0057 aka something close to uSv/hr.
+  // We keep one digit for the integral part and 3 for the decimal part
+  // (otherwise you have bigger problems).
+  // So we actually want 1000*uSv/hr. We thus mult by 5.7.
+  uint16_t siv = (cpm * 1459UL) >> 8U;
+  uart_putuint(siv);
   uart_putchar('\n');
+
+  bubble_set_float(&bubble, siv, 3);
 
   cps = 0;  // reset counter
 }
@@ -187,9 +198,28 @@ ISR(INT0_vect)
   bip_start();
 }
 
+/* Display driver callbacks */
+void set_digits(uint8_t s)
+{
+  // We use PD6, PB0,1,3 for digits 0,1,2,3
+  BIT_SET_TO(PORTD, 6, IS_BIT_SET(s, 0));
+  BIT_SET_TO(PORTB, 0, IS_BIT_SET(s, 1));
+  BIT_SET_TO(PORTB, 1, IS_BIT_SET(s, 2));
+  BIT_SET_TO(PORTB, 3, IS_BIT_SET(s, 3));
+}
+
+void set_segments(uint8_t s)
+{
+  // We use PD3,4,5 to drive the SIPO through a shift register
+  SHIFT_REG_PUT(PORTD, 3, PORTD, 4, PORTD, 5, s);
+}
+
+
 // Start of main program
 int main(void)
 {
+  bubble_ctor(&bubble);
+
   // Configure the UART
   // Set baud rate generator based on F_CPU
   UBRRH = (unsigned char)(F_CPU/(16UL*BAUD)-1)>>8;
@@ -199,7 +229,10 @@ int main(void)
   UCSRB = (1<<RXEN) | (1<<TXEN);
 
   // Set up AVR IO ports
-  DDRB = _BV(PB4) | _BV(PB2);  // set pins connected to LED and piezo as outputs
+  // PB4 is for the LED, PB2 for the piezzo, PB0,1,3 for digit selection:
+  DDRB = _BV(PB4) | _BV(PB3) | _BV(PB2) | _BV(PB1) | _BV(PB0);
+  // PD6 is also for digit selection, and PD3,4,5 to drive the SIPO:
+  DDRD |= _BV(PD6) | _BV(PD5) | _BV(PD4) | _BV(PD3);
 
   // Set up external interrupts
   // INT0 is triggered by a GM impulse
@@ -212,8 +245,8 @@ int main(void)
 
   event_init();
   event_ctor(&every_second_e, every_second);
-  every_second(&every_second_e);
   event_ctor(&bip_stop_e, bip_stop);
+  every_second(&every_second_e);
 
   forever {  // loop forever
 

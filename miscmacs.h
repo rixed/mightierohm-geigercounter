@@ -24,18 +24,15 @@
 #define STRIZE(x)  _STRIZE(x)
 
 /// Downcast from a subtype to a parent type (ie. from included struct to the struct that includes it)
-#ifndef __NCC__ // for some reason ncc chocke on offsetof
-#   include <stddef.h>
-#   define DOWNCAST(val, member, subtype) ((struct subtype *)((char *)(val) - offsetof(struct subtype, member)))
-#else
-#   define DOWNCAST(val, member, subtype) ((struct subtype *)(val))
-#endif
+#include <stddef.h>
+#define DOWNCAST(val, member, subtype) ((struct subtype *)((char *)(val) - offsetof(struct subtype, member)))
 
 #define BIT(b) (1U << (b))
 #define IS_BIT_SET(v, b) (!!((v) & BIT(b)))
 #define BIT_SET(v, b) v |= BIT(b)
 #define BIT_CLEAR(v, b) v &= ~BIT(b)
 #define BIT_FLIP(v, b) v ^= BIT(b)
+#define BIT_SET_TO(v, b, x) if ((x)) BIT_SET(v, b); else BIT_CLEAR(v, b);
 
 #define forever for (;;)
 #define DIV_ROUND(a, b) (((a)+(a>>1))/b)

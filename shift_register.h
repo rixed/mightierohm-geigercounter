@@ -8,20 +8,15 @@
 #ifndef SHIFT_REG_H_150420
 #define SHIFT_REG_H_150420
 
-inline static void shift_reg_put(volatile uint8_t *port, uint8_t value)
-{
-# define DS   0
-# define SHCP 1
-# define STCP 2
-  BIT_CLEAR(*port, STCP);
-  for (uint8_t bit = 0x80U; bit; bit >>= 1U) {
-    if (value & bit) BIT_SET(*port, DS);
-    else BIT_CLEAR(*port, DS);
-    BIT_SET(*port, SHCP);
-    BIT_CLEAR(*port, SHCP);
-  }
-
-  BIT_SET(*port, STCP);
-}
+#define SHIFT_REG_PUT(DS_PORT, DS_BIT, SHCP_PORT, SHCP_BIT, STCP_PORT, STCP_BIT, value) do { \
+  BIT_CLEAR(STCP_PORT, STCP_BIT); \
+  for (uint8_t bit = 0x80U; bit; bit >>= 1U) { \
+    if ((value) & bit) BIT_SET(DS_PORT, DS_BIT); \
+    else BIT_CLEAR(DS_PORT, DS_BIT); \
+    BIT_SET(SHCP_PORT, SHCP_BIT); \
+    BIT_CLEAR(SHCP_PORT, SHCP_BIT); \
+  } \
+  BIT_SET(STCP_PORT, STCP_BIT); \
+} while (0)
 
 #endif

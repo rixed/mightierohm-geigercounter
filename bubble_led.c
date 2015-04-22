@@ -2,9 +2,6 @@
 #include <avr/io.h>
 #include <avr/pgmspace.h>
 #include "miscmacs.h"
-#ifdef BUBBLE_LED_VIA_SHIFT_REGISTER
-# include "shift_register.h"
-#endif
 #include "bubble_led.h"
 
 static uint8_t segments_of_value(uint8_t value)
@@ -46,10 +43,8 @@ static uint8_t segments_of_value(uint8_t value)
 #define X_DDR_OF(X) DDR ## X
 #define DDR_OF(X) X_DDR_OF(X)
 
-void bubble_set_float(struct bubble *b, uint16_t value, uint8_t dec_bits)
+void bubble_set_float(struct bubble *b, uint16_t value, uint8_t dp)
 {
-  (void)dec_bits;
-  // v1: cassume dec_bits = 0
   // Avoid doing a useless division
   uint8_t d;
   for (d = 0; d < SIZEOF_ARRAY(b->digits); d++) {
@@ -57,16 +52,12 @@ void bubble_set_float(struct bubble *b, uint16_t value, uint8_t dec_bits)
     b->digits[d] = r.rem;
     value = r.quot;
   }
+  b->dp = dp;
 }
 
 static void bubble_off(void)
 {
-# ifndef BUBBLE_LED_VIA_SHIFT_REGISTER
-  PORT_OF(BB_PORT_SEGMENTS) = 0;
-# else
-  // TODO: faster using the MR pin of the shift_reg.
-  shift_reg_put(&PORT_OF(BB_PORT_SHIFT_REG), 0);
-# endif
+  set_segments(0);
 }
 
 void bubble_set(uint8_t digit, uint8_t value, bool dp)
@@ -74,13 +65,9 @@ void bubble_set(uint8_t digit, uint8_t value, bool dp)
   // Do not allow another digit to leak light into this one,
   // which is especially visible if we use the shift register.
   bubble_off();
-  PORT_OF(BB_PORT_DIGITS) = (PORT_OF(BB_PORT_DIGITS) & 0xf0U) | (0x0fU ^ BIT(3-digit));
-  uint8_t const s = segments_of_value(value) + (dp ? 128U:0U);
-# ifndef BUBBLE_LED_VIA_SHIFT_REGISTER
-  PORT_OF(BB_PORT_SEGMENTS) = s;
-# else  // segments are accessed via a shift register, accessible via port BB_PORT_SHIFT_REG
-  shift_reg_put(&PORT_OF(BB_PORT_SHIFT_REG), s);
-# endif
+  set_digits(0x0fU ^ BIT(3U-digit));
+  uint8_t const s = segments_of_value(value) | (dp ? 128U:0U);
+  set_segments(s);
 }
 
 #define DIGIT_ALTERN_US 1000U
@@ -88,7 +75,7 @@ void bubble_alternate_digit(struct event *e)
 {
   struct bubble *b = DOWNCAST(e, e, bubble);
 
-  bubble_set(b->dx, b->digits[b->dx], false);
+  bubble_set(b->dx, b->digits[b->dx], b->dp == b->dx);
 
   if (++b->dx >= SIZEOF_ARRAY(b->digits)) b->dx = 0;
 
@@ -97,12 +84,3 @@ void bubble_alternate_digit(struct event *e)
 
 extern inline void bubble_ctor(struct bubble *b);
 
-void bubble_init(void)
-{
-  DDR_OF(BB_PORT_DIGITS) |= 0x0fU;
-# ifndef BUBBLE_LED_VIA_SHIFT_REGISTER
-  DDR_OF(BB_PORT_SEGMENTS) = 0xffU;
-# else
-  DDR_OF(BB_PORT_SHIFT_REG) |= 0x07U;
-# endif
-}

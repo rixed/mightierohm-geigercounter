@@ -35,6 +35,17 @@ libcommon.a: $(patsubst %.c, %.o, $(filter %.c, $(LIBCOMMON_SOURCES)))
 .hex.up:
 	sudo avrdude -p ${MCU_dude} -c ${PROGRAMMER} -U flash:w:$<:i
 
+# Fuse configuration:
+# For a really nice guide to AVR fuses, see http://www.engbedded.com/fusecalc/
+# LFUSE: SUT0, CKSEL0 (Ext Xtal 8+Mhz, 0ms startup time)
+LFUSE = 0xEE
+# HFUSE: BODLEVEL0 (Serial programming enabled, Brownout = 1.8V
+HFUSE = 0xDD
+# EFUSE: no fuses programmed
+EFUSE = 0xFF
+fuse:
+	sudo avrdude -p ${MCU_dude} -c ${PROGRAMMER} -U hfuse:w:$(HFUSE):m -U lfuse:w:$(LFUSE):m -U efuse:w:$(EFUSE):m
+
 .PHONY: clean clean-spec
 
 clean: clean-spec
