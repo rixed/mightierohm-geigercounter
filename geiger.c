@@ -7,8 +7,7 @@
  * - Consider replacement of the mute button by a switch to save one pin of
  *   the uC;
  * - Major rewrite of the firmware (this file);
- * - Making all code fit within 2Kb requires trimming down texts
- * - and simplifying reporting (now only CPS and CPM).
+ * - Making all code fit within 2Kb requires trimming down texts.
  *
  * We had 5 free pins in the original design, we now have 8, which is enough
  * for driving the display with the help of a SIPO shift register.
@@ -248,14 +247,12 @@ int main(void)
   event_ctor(&bip_stop_e, bip_stop);
   every_second(&every_second_e);
 
+  // Configure AVR for sleep, this saves a couple mA when idle
+  set_sleep_mode(SLEEP_MODE_IDLE);  // CPU will go to sleep but peripherals keep running
   forever {  // loop forever
-
-    // Configure AVR for sleep, this saves a couple mA when idle
-//    set_sleep_mode(SLEEP_MODE_IDLE);  // CPU will go to sleep but peripherals keep running
-//    sleep_enable();   // enable sleep
-//    sleep_cpu();    // put the core to sleep
-
-//    sleep_disable();  // disable sleep so we don't accidentally go to sleep
+    sleep_enable();
+    sei();
+    sleep_cpu();    // put the core to sleep
   }
   return 0; // never reached
 }
