@@ -7,7 +7,7 @@
 #include "event.h"
 #include "cpp.h"
 
-static struct event *next_event = NULL;
+static struct event *volatile next_event = NULL;
 
 #define EVENT_BASE_ERR 13
 #define MIN_DELAY 64U // above this we return the CPU, below this we wait here

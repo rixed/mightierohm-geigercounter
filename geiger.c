@@ -91,9 +91,7 @@
 #define SCALE_FACTOR  57    //  CPM to uSv/hr conversion factor (x10,000 to avoid float)
 
 // Global variables
-static uint8_t cps;     // number of GM events that has occurred this second
-static uint8_t buffer[30]; // the sample buffer. Any 255 means overflow.
-static uint8_t idx;         // sample buffer index
+static volatile uint8_t cps;     // number of GM events that has occurred this second
 
 static struct bubble bubble;
 
@@ -127,17 +125,20 @@ static struct event bip_stop_e;
 // Run this every seconds
 static void every_second(struct event *e)
 {
-  // Reschedule
-  event_register(e, US_TO_TIMER1_TICKS(1000000ULL));
+  static uint8_t buffer[30]; // the sample buffer. Any 255 means overflow.
+  static uint8_t idx;         // sample buffer index
 
   //BIT_FLIP(PORTB, PB4);  // toggle the LED (for debugging purposes)
 
-  buffer[idx] = cps;   // save current sample to buffer (replacing old value)
+  uint8_t const c_cps = cps;  // non valoatile copy
+  cps = 0;  // reset counter
+
+  buffer[idx] = c_cps;   // save current sample to buffer (replacing old value)
   if (++idx >= SIZEOF_ARRAY(buffer)) idx = 0;
 
   // Log data over the serial port
-  if (cps >= UINT8_MAX) uart_putchar('>');
-  uart_putuint(cps);
+  if (c_cps >= UINT8_MAX) uart_putchar('>');
+  uart_putuint(c_cps);
   uart_putchar(',');
 
   uint8_t overflow = 0;
@@ -161,7 +162,8 @@ static void every_second(struct event *e)
 
   bubble_set_float(&bubble, siv, 3);
 
-  cps = 0;  // reset counter
+  // Reschedule
+  event_register(e, US_TO_TIMER1_TICKS(1000000ULL));
 }
 
 // Bip start/stop events
@@ -191,8 +193,9 @@ static void bip_stop(struct event *e)
 //  This interrupt is called on the falling edge of a GM pulse.
 ISR(INT0_vect)
 {
-  if (cps < UINT8_MAX) // check for overflow, if we do overflow just cap the counts at max possible
-    cps++; // increase event counter
+  uint8_t const c_cps = cps;  // non volatile copy
+  if (c_cps < UINT8_MAX) // check for overflow, if we do overflow just cap the counts at max possible
+    cps = c_cps + 1; // increase event counter
 
   bip_start();
 }
