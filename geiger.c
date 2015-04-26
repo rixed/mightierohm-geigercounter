@@ -100,7 +100,7 @@ static struct bubble bubble;
 // Send a character to the UART
 static void uart_putchar(char c)
 {
-  if (c == '\n') uart_putchar('\r');  // Windows-style CRLF
+  if (c == '\n') c = '\r';  // Windows-style CRLF
 
   loop_until_bit_is_set(UCSRA, UDRE); // wait until UART is ready to accept a new character
   UDR = c;              // send 1 character

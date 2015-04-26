@@ -3,7 +3,7 @@
 #define EVENT_H_120813
 #include <stdint.h>
 
-#define TIMER1_PRESCALER 8
+#define TIMER1_PRESCALER 8U
 #define US_TO_TIMER1_TICKS(us) (uint32_t)(((uint64_t)(us) * (F_CPU / TIMER1_PRESCALER)) / 1000000ULL)
 
 struct event {
