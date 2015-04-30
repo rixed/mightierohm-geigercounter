@@ -97,6 +97,7 @@ static struct bubble bubble;
 
 /* Utility functions */
 
+#ifdef WITH_COM
 // Send a character to the UART
 static void uart_putchar(char c)
 {
@@ -116,6 +117,7 @@ static void uart_putuint(uint32_t x)
     uart_putuint(r.rem);
   }
 }
+#endif
 
 /* Events */
 
@@ -136,55 +138,62 @@ static void every_second(struct event *e)
   buffer[idx] = c_cps;   // save current sample to buffer (replacing old value)
   if (++idx >= SIZEOF_ARRAY(buffer)) idx = 0;
 
+# ifdef WITH_COM
   // Log data over the serial port
   if (c_cps >= UINT8_MAX) uart_putchar('>');
   uart_putuint(c_cps);
   uart_putchar(',');
-
   uint8_t overflow = 0;
+# endif
+
   uint16_t cpm = 0;
   for (uint8_t i = 0; i < SIZEOF_ARRAY(buffer); i++) {
+#   ifdef WITH_COM
     if (buffer[i] == UINT8_MAX) overflow = 1;
+#   endif
     cpm += buffer[i];
   }
   cpm <<= 1;  // since we have only 30secs
+# ifdef WITH_COM
   if (overflow) uart_putchar('>');
   uart_putuint(cpm);
   uart_putchar(',');
-
+# endif
   // Display CPM * 0.0057 aka something close to uSv/hr.
   // We keep one digit for the integral part and 3 for the decimal part
   // (otherwise you have bigger problems).
   // So we actually want 1000*uSv/hr. We thus mult by 5.7.
   uint16_t siv = (cpm * 1459UL) >> 8U;
-  uart_putuint(siv);
-  uart_putchar('\n');
-
   bubble_set_float(&bubble, siv, 3);
 
+# ifdef WITH_COM
+  uart_putuint(siv);
+  uart_putchar('\n');
+# endif
+
   // Reschedule
-  event_register(e, US_TO_TIMER1_TICKS(1000000ULL));
+  event_register(e, every_second, US_TO_TIMER1_TICKS(1000000ULL));
+}
+
+static void bip_stop(struct event *e)
+{
+  (void)e;
+  BIT_CLEAR(PORTB, PB4);
+  TCCR0B = 0;       // disable Timer0 since we're no longer using it
+  TCCR0A &= ~(_BV(COM0A0)); // disconnect OCR0A from Timer0, this avoids occasional HVPS whine after beep
 }
 
 // Bip start/stop events
 static void bip_start(void)
 {
-  PORTB |= _BV(PB4);  // turn on the LED
+  BIT_SET(PORTB, PB4);
 
   TCCR0A |= _BV(COM0A0);  // enable OCR0A output on pin PB2
   TCCR0B |= _BV(CS01);  // set prescaler to clk/8 (1Mhz) or 1us/count
   OCR0A = 160;  // 160 = toggle OCR0A every 160ms, period = 320us, freq= 3.125kHz
 
   // 10ms delay gives a nice short flash and 'click' on the piezo
-  event_register(&bip_stop_e, US_TO_TIMER1_TICKS(10000ULL));  // 10ms
-}
-
-static void bip_stop(struct event *e)
-{
-  (void)e;
-  PORTB &= ~(_BV(PB4)); // turn off the LED
-  TCCR0B = 0;       // disable Timer0 since we're no longer using it
-  TCCR0A &= ~(_BV(COM0A0)); // disconnect OCR0A from Timer0, this avoids occasional HVPS whine after beep
+  event_register(&bip_stop_e, bip_stop, US_TO_TIMER1_TICKS(10000ULL));  // 10ms
 }
 
 /* Interrupt */
@@ -216,7 +225,6 @@ void set_segments(uint8_t s)
   SHIFT_REG_PUT(PORTD, 3, PORTD, 4, PORTD, 5, s);
 }
 
-
 // Start of main program
 int main(void)
 {
@@ -246,8 +254,8 @@ int main(void)
   TCCR0B = 0; // stop Timer0 (no sound)
 
   event_init();
-  event_ctor(&every_second_e, every_second);
-  event_ctor(&bip_stop_e, bip_stop);
+  event_ctor(&every_second_e);
+  event_ctor(&bip_stop_e);
   every_second(&every_second_e);
 
   // Configure AVR for sleep, this saves a couple mA when idle
@@ -259,4 +267,3 @@ int main(void)
   }
   return 0; // never reached
 }
-

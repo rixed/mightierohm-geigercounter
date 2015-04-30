@@ -1,7 +1,7 @@
 top_srcdir = .
 all: geiger.hex
 
-CPPFLAGS = -DBUBBLE_LED_VIA_SHIFT_REGISTER=1 -DBB_PORT_SHIFT_REG=B
+CPPFLAGS = -DBUBBLE_LED_VIA_SHIFT_REGISTER=1 -DBB_PORT_SHIFT_REG=B -DWITH_COM
 
 include $(top_srcdir)/make.common
 

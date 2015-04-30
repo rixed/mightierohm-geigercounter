@@ -79,7 +79,7 @@ void bubble_alternate_digit(struct event *e)
 
   if (++b->dx >= SIZEOF_ARRAY(b->digits)) b->dx = 0;
 
-  event_register(&b->e, US_TO_TIMER1_TICKS(DIGIT_ALTERN_US));
+  event_register(e, bubble_alternate_digit, US_TO_TIMER1_TICKS(DIGIT_ALTERN_US));
 }
 
 extern inline void bubble_ctor(struct bubble *b);

@@ -26,9 +26,9 @@ void bubble_alternate_digit(struct event *);
 
 static inline void bubble_ctor(struct bubble *b)
 {
-  event_ctor(&b->e, bubble_alternate_digit);
+  event_ctor(&b->e);
   b->dx = 0;
-  event_register(&b->e, 0);
+  bubble_alternate_digit(&b->e);
 }
 
 // dp: after which digit to set the decimal point (if between 0 and 3).

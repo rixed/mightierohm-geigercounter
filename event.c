@@ -14,78 +14,87 @@ static struct event *volatile next_event = NULL;
 
 static void event_run_next(void)
 {
-    TCNT1 = 0;
-    struct event *e = next_event;
-    if (unlikely_(e->delay >= MAX_SLEEP)) {
-        e->delay -= MAX_SLEEP;
-    } else {
-        next_event = e->next;
-        e->cb(e); // Beware: might call event_register, ie. update e and next_event
-    }
+  TCNT1 = 0;
+  struct event *const e = next_event;
+  if (unlikely_(e->delay >= MAX_SLEEP)) {
+    e->delay -= MAX_SLEEP;
+  } else {
+    void (*cb)(struct event *) = e->cb;
+    e->cb = NULL;
+    next_event = e->next;
+    cb(e); // Beware: might call event_register, ie. update next_event
+  }
 }
 
 // caller must have cleared Interrupt flag
 // TCNT1 was 0 at the start of last event
 static void event_program_timer(void)
 {
-    struct event *e = next_event;
-    while (e) {
-        if (unlikely_(e->delay >= MAX_SLEEP)) {
-            OCR1A = MAX_SLEEP;
-            break;
-        // else we know delay fits within 16 bits:
-        } else if (likely_((uint16_t)e->delay > TCNT1 + MIN_DELAY)) {
-            // We assume above that TCNT1 and MIN_DELAY are small enough not
-            // to make the add overflow
-            OCR1A = e->delay;
-            break;
-        }
-        // 32 cycles up to cb() call
-        OCR1A = 65535U; // to allow TCNT1 to go as high as we want
-        while (TCNT1 + (32U/TIMER1_PRESCALER) < (uint16_t)e->delay) {
-            // busy-wait here
-        }
-        event_run_next();
-        e = next_event;
-    };
+  struct event *const e = next_event;
+  if (! e) return;
+
+  if (unlikely_(e->delay >= MAX_SLEEP)) {
+    OCR1A = MAX_SLEEP;
+  } else {
+    uint16_t close = TCNT1 + MIN_DELAY;
+    if (likely_((uint16_t)e->delay > close)) {
+      OCR1A = (uint16_t)e->delay;
+    } else {  // now is either after or very close to e->delay
+      OCR1A = close;
+    }
+  }
 }
 
 // This must be reentrant.
-void event_register(struct event *e, uint32_t delay)
+// Also, e may already been connected (if it has not fired yet).
+void event_register(struct event *e, void (*cb)(struct event *), uint32_t delay)
 {
-    struct event *next = next_event;
-    struct event *prev = NULL;
-    uint8_t const saved_sregs = SREG;
-    cli();
-    // Insert this event in the list of future events
-    while (1) {
-        if (! next || delay <= next->delay) {
-            e->delay = delay;
-            e->next = next;
-            if (next) next->delay -= delay;
-            if (! prev) {
-                // we add the next event
-                next_event = e;
-                if (next) {
-                    uint16_t const now = TCNT1;
-                    if (now < next->delay) {
-                        next->delay -= now;
-                    } else {
-                        next->delay = 0; // Should seldom happen :-(
-                    }
-                }
-                TCNT1 = 0;
-                event_program_timer();
-            } else {
-                prev->next = e;
-            }
-            break;
-        }
-        delay -= next->delay;
-        prev = next;
-        next = next->next;
+  uint8_t const saved_sregs = SREG;
+  cli();
+  // next_event is not volatile any more
+
+  BIT_SET(PORTB, PB4);
+  // enqueue this task if it was queued
+  if (e->cb) {
+    struct event **ee;
+    for (ee = (struct event **)&next_event; *ee != e; ee = &(*ee)->next) ;
+    *ee = (*ee)->next;
+  }
+  BIT_CLEAR(PORTB, PB4);
+  e->cb = cb;
+
+  struct event *next = next_event;
+  struct event *prev = NULL;
+
+  // Insert this event in the list of future events
+  while (next && delay > next->delay) {
+    delay -= next->delay;
+    prev = next;
+    next = next->next;
+  }
+
+  e->delay = delay;
+  e->next = next;
+  if (next) {
+    next->delay -= delay;
+  }
+  if (prev) {
+    prev->next = e;
+  } else {
+    // we add the first event
+    next_event = e;
+    if (next) {
+      uint16_t const now = TCNT1;
+      if (now < next->delay) {
+        next->delay -= now;
+      } else {
+        next->delay = 0; // Should seldom happen :-(
+      }
     }
-    SREG = saved_sregs;
+    TCNT1 = 0;
+    event_program_timer();
+  }
+  SREG = saved_sregs;
 }
 
 // First version : blocking ISR (TODO: allow interrupts while in cb())
@@ -97,7 +106,7 @@ ISR(TIMER1_COMPA_vect)
     }
 }
 
-extern inline void event_ctor(struct event *ev, void (*cb)(struct event *));
+extern inline void event_ctor(struct event *ev);
 
 void event_init(void)
 {
